@@ -103,6 +103,33 @@ local function gen_default_ssl_cert(kong_config, target)
   return true
 end
 
+
+local function gen_trusted_certs_file(kong_config)
+  -- create SSL folder
+  local ssl_path = pl_path.join(kong_config.prefix, "ssl")
+  local ok, err = pl_dir.makepath(ssl_path)
+  if not ok then
+    return nil, err
+  end
+
+  local certs_path = pl_path.join(ssl_path, "certs.pem")
+  log.verbose("generating trusted certs file in ", certs_path)
+
+  local fd = assert(io.open(certs_path, "w+b"))
+
+  for _,path in pairs(kong_config.lua_ssl_trusted_certificate) do
+    local f = assert(io.open(path, "r"))
+    local str = assert(f:read("*a"))
+    f:close()
+
+    fd:write(str)
+  end
+
+  io.close(fd)
+
+  return certs_path
+end
+
 local function get_ulimit()
   local ok, _, stdout, stderr = pl_utils.executeex "ulimit -n"
   if not ok then
@@ -165,6 +192,19 @@ local function compile_conf(kong_config, conf_template)
       if worker_connections_auto then
         worker_connections_auto.value = value
       end
+    end
+  end
+
+  if type(kong_config.lua_ssl_trusted_certificate) == "table" then
+    if #kong_config.lua_ssl_trusted_certificate == 0 then
+      kong_config.lua_ssl_trusted_certificate = nil
+
+    else
+      local filepath, err = gen_trusted_certs_file(kong_config)
+      if not filepath then
+        return nil, err
+      end
+      kong_config.lua_ssl_trusted_certificate = filepath
     end
   end
 
